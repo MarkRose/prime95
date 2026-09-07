@@ -2721,6 +2721,7 @@ void implementThrottle (
 	int	thread_num)
 {
 	int	totaltime;
+	(void) thread_num;		/* Unused, but part of the timed event interface */
 
 /* Every 0.1 seconds see if we should resume processing.  We check */
 /* frequently so that we can be responsive to an ESC or terminate command. */
@@ -4777,6 +4778,7 @@ int factorPassSetup (
 	struct facasm_data *asm_data = facdata->asm_data;
 	uint32_t fachsw, facmsw;
 	unsigned int i, j, bits_in_factor;
+	(void) thread_num;		/* Unused, but the other factoring routines take a thread number */
 
 /* Save the factoring pass */
 
@@ -10466,6 +10468,7 @@ void createProofResiduesFile (
 	int	fd, i, j;
 	uint64_t total_size, randomizer, *p;
 	char	buf[65536];
+	(void) gwdata;			/* Unused, but the other proof file routines take a gwhandle */
 
 // Create the file to hold the interim proof residues
 

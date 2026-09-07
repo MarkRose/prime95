@@ -200,6 +200,7 @@ int curl_trace (
 	char	*text;
 	char	buf[4096];
 	int	len, i, binary_data;
+	(void) handle, (void) userp;	/* Unused, but part of the cURL debug callback interface */
 
 	switch (type) {
 	case CURLINFO_TEXT:
@@ -278,6 +279,7 @@ int pnHttpServerCURL (char *pbuf, unsigned cbuf, char* postargs)
 	char	szProxyUser[PROXY_USER_BUFSIZE];
 	char	szProxyPassword[PROXY_PASSWORD_BUFSIZE];
 	unsigned short nProxyPort;
+	(void) cbuf;			/* Unused -- WriteMemoryCallback hardcodes the 4096 byte pbuf size */
 
 /* Get debug logging flag */
 

@@ -3774,6 +3774,7 @@ int updateWorkToDoLine (
 	int	tnum,		/* Worker to process this work unit */
 	struct work_unit *w)	/* Type of work */
 {
+	(void) tnum, (void) w;	/* Unused, but part of the work unit interface */
 
 /* Set flag indicating worktodo needs writing */
 
@@ -6072,6 +6073,7 @@ static	int	send_message_retry_count = 0;
 	int	can_get_cert_work, can_get_small_cert_work = FALSE, sent_prp_result;
 	int	server_options_counter, retry_count;
 	char	buf[1000];
+	(void) arg;			/* Unused, but this is a thread entry point */
 
 /* If we got an obsolete client error code earlier, then do not attempt */
 /* any more communication with the server. */
@@ -7156,6 +7158,7 @@ void timed_events_scheduler (void *arg)
 	int	i;
 	time_t	wake_up_time;
 	int	there_are_active_events;
+	(void) arg;			/* Unused, but this is a thread entry point */
 
 /* Loop forever, sleeping until next event fires up */
 
@@ -7337,6 +7340,7 @@ void proofUploader (void *arg)
 {
 	char	proof_files[50][512];		// We can send up to 50 proof files
 	int	i, minutes_to_wait, minutes_to_start, num_proof_files;
+	(void) arg;				/* Unused, but this is a thread entry point */
 
 /* Init event that triggers proof uploads without waiting for next hourly check */
 

@@ -236,6 +236,7 @@ int cert (
 	char	string_rep[80];
 	int	error_count_messages;
 	hash256_t hash;
+	(void) pass;			/* Unused, but part of the primeContinue interface */
 
 /* We only expect certifications on Mersenne numbers from the primenet server */
 

@@ -2685,7 +2685,7 @@ int addToWorkUnitArray (
 	struct work_unit *w,	/* Work unit to add to array */
 	int	add_point)	/* Three possible insertion points */
 {
-	struct work_unit *insertion_point;
+	struct work_unit *insertion_point = NULL;	/* Insert at the head if add_point is not one of the cases below */
 
 /* When there are more worker sections than workers (as can happen when the user shrinks the */
 /* number of worker windows), redistribute lines from those worker sections to the active sections. */

@@ -3237,7 +3237,7 @@ again:	clearThreadHandleArray ();
 void LauncherDispatch (void *arg)
 {
 	struct LaunchData *ld;
-	int	stop_reason;
+	int	stop_reason = 0;
 
 	ld = (struct LaunchData *) arg;
 
@@ -5184,7 +5184,7 @@ int factorChunkMultithreaded (		/* Return TRUE when there is no more work to do 
 
 		else {
 			int	i, best_siever;
-			uint64_t score, best_score_thusfar;
+			uint64_t score, best_score_thusfar = 0;	/* Only read once best_siever is set */
 
 			// Mark our old siever unassigned if the siever was assigned to this thread
 			if (siever->last_thread_used == aux_thread_num) siever->state = SIEVER_INACTIVE;
@@ -5376,7 +5376,7 @@ void factorFindSmallestNotTFed (
 	fachandle *facdata)		/* Handle returned by factorSetup */
 {
 	int	i, j;
-	uint64_t smallest, temp;
+	uint64_t smallest = 0xFFFFFFFFFFFFFFFFULL, temp;
 	struct facasm_data *asm_data = facdata->asm_data;
 
 /* Search for the smallest sieved area.  If there are no sieved areas, we'll end up */
@@ -5386,7 +5386,7 @@ void factorFindSmallestNotTFed (
 	for (i = 0; i < facdata->num_sievers; i++) {
 		temp = (facdata->sievers[i].next_sieve_first_factor[0] << 32) +
 		       (facdata->sievers[i].next_sieve_first_factor[1] >> 32);
-		if (i == 0 || temp < smallest) smallest = temp;
+		if (temp < smallest) smallest = temp;
 	}
 	for (i = 0; i < facdata->num_pools; i++) {
 		for (j = 0; j < facdata->num_sieve_areas_per_pool; j++) {
@@ -5441,7 +5441,8 @@ int primeFactor (
 	unsigned long test_bits;	/* How far to factor to */
 	long	factor_found;		/* Returns true if factor found */
 	int	fd;			/* Continuation file handle or zero */
-	int	first_iter_msg, continuation, stop_reason, find_smaller_factor;
+	int	first_iter_msg, continuation, stop_reason;
+	int	find_smaller_factor = FALSE;	/* Only read once factor_found is TRUE */
 	unsigned long endpthi, endptlo;
 	double	endpt, startpt;		/* For computing percent complete */
 	unsigned long pass;		/* Factoring pass 0 through 15 */
@@ -9579,7 +9580,7 @@ int primeBenchMultipleWorkersInternal (
 			    worker_num = 0;
 			    node = 0;
 			    while (workers_left) {
-				int	nodes_to_use, cores_this_nodeset, unused_cores_this_nodeset, workers_this_nodeset, nodesets_left;
+				int	nodes_to_use, cores_this_nodeset, unused_cores_this_nodeset = 0, workers_this_nodeset, nodesets_left;
 
 				// Calculate the number of cores in this set of threading nodes.  Multiple nodes occur when there are fewer
 				// workers left than nodes left.  One or more workers must use multiple nodes.
@@ -11876,9 +11877,9 @@ int prp (
 	unsigned long restart_error_count = 0;	/* On a restart, use this error count rather than the one from a save file */
 	long	restart_counter = -1;		/* On a restart, this specifies how far back to rollback save files */
 	unsigned long excess_squarings;		/* Number of extra squarings we are doing in order to generate a PRP proof */
-	int	proof_next_interim_residue;	/* The next interim residue to output */
-	unsigned long proof_next_interim_residue_iter; /* The iteration where the next interim residue occurs */
-	unsigned long initiallog2k_iters, initial_nonproof_iters, final_residue_counter;
+	int	proof_next_interim_residue = 0;	/* The next interim residue to output */
+	unsigned long proof_next_interim_residue_iter = 0; /* The iteration where the next interim residue occurs */
+	unsigned long initiallog2k_iters, initial_nonproof_iters = 0, final_residue_counter;
 	uint64_t exp_checksum;			/* Checksum of exp to catch memory errors in exp */
 	int	proof_residue;			/* True if this iteration must output a PRP proof residue */
 	char	proof_hash[33];			/* 128-bit MD5 hash of the proof file */
@@ -12559,7 +12560,7 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 	iters = 0;
 	while (ps.counter < final_counter) {
 		gwnum	x;			/* Pointer to number to square */
-		unsigned long *units_bit;	/* Pointer to units_bit to update */
+		unsigned long *units_bit = &ps.units_bit;	/* Pointer to units_bit to update */
 		int	saving, saving_highly_reliable, sending_residue, interim_residue, interim_file;
 		int	actual_frequency;
 

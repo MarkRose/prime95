@@ -1226,7 +1226,7 @@ void options_benchmark (void)
 {
 	unsigned long m_bench_type, m_minFFT, m_maxFFT, m_bench_time;
 	char	m_cores[512], m_workers[512];
-	int	m_errchk, m_negacyclic, m_limit_FFT_sizes, m_hyperthreading, m_all_FFT_impl;
+	int	m_errchk = 0, m_negacyclic = 0, m_limit_FFT_sizes = 0, m_hyperthreading, m_all_FFT_impl = 0;
 
 	m_bench_type = 0;
 	askNum ("Benchmark type (0 = Throughput, 1 = FFT timings, 2 = Trial factoring)", &m_bench_type, 0, 2);

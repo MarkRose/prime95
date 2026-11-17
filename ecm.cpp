@@ -17238,7 +17238,7 @@ pp1_polymult:
 
 	// Each helper computes every helper_count-th poly #2 coefficient.  Each helper must have at least one coefficient to compute.
 	pp1data.helper_count = pp1data.stage2_threads;
-	if (pp1data.helper_count > pp1data.num_points) pp1data.helper_count = (int) pp1data.num_points;
+	if ((uint64_t) pp1data.helper_count > pp1data.num_points) pp1data.helper_count = (int) pp1data.num_points;
 
 // Polymult stage 2 does not need a prime sieve
 
@@ -17378,9 +17378,9 @@ pp1_polymult:
 				int poly2_size = (i+1 < num_polys-1) ? poly_size : last_poly_size;
 				polymult (&pp1data.polydata, &poly1[0][i*poly_size], poly_size, &poly1[0][(i+1)*poly_size], poly2_size,
 					  &poly1[0][i*poly_size], poly_size + poly2_size,
-					  (poly_size == 1 ? POLYMULT_INVEC1_NEGATE : 0) +
-					  (poly2_size == 1 ? POLYMULT_INVEC2_NEGATE : 0) +
-					  POLYMULT_INVEC1_MONIC_RLP | POLYMULT_INVEC2_MONIC_RLP | POLYMULT_NO_UNFFT);
+					  ((poly_size == 1 ? POLYMULT_INVEC1_NEGATE : 0) +
+					   (poly2_size == 1 ? POLYMULT_INVEC2_NEGATE : 0) +
+					   POLYMULT_INVEC1_MONIC_RLP) | POLYMULT_INVEC2_MONIC_RLP | POLYMULT_NO_UNFFT);
 			}
 			// Multithreaded unfft poly coefficients
 			poly_unfft_fft_coefficients (&pp1data.polydata, poly1[0], pp1data.poly1_size);
@@ -17439,7 +17439,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pp1data.gwdata);
 		// Like P-1, multiply all coefficients by an additional r^(j^2) so that RLP remains monic.
 		pp1_ext_pow (&pp1data.gwdata, pp1data.V, r, (uint64_t) pp1data.numrels * (uint64_t) pp1data.numrels, multiplier, ext_tmp);	// r^(j^2)
 		// Loop multiplying the RLP coefficients.  The second half of poly #1 is the first half's coefficient times the multiplier's alpha gwnum.
-		for (int j = 0; j < pp1data.poly1_size; j++) {
+		for (int j = 0; (uint64_t) j < pp1data.poly1_size; j++) {
 			if (j == 1) {
 				pp1_ext_mul_by_diff (&pp1data.gwdata, multiplier, diff1, ext_tmp, GWMUL_STARTNEXTFFT);			// r^(j^2)*r^-1
 				gwswap (multiplier[0], ext_tmp[0]);

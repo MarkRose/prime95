@@ -4,8 +4,8 @@
 # package.  This workflow runs after a successful "Build" of a push to this
 # repository (or by hand for any branch, tag or commit), checks out that
 # commit, and uploads:
-#   prime95-win64-<branch>-<sha>  prime95.exe (64-bit Release) and its DLLs
-#   mprime-linux64-<branch>-<sha> mprime (built on Ubuntu 24.04)
+#   prime95-win64-<branch>-<sha>.zip      prime95.exe (64-bit Release) and its DLLs
+#   mprime-linux64-<branch>-<sha>.tar.gz  mprime (built on Ubuntu 24.04)
 #
 # It lives on the fork's master because GitHub only runs workflow_run and
 # workflow_dispatch workflows from the default branch.  Tool and library
@@ -98,17 +98,23 @@ jobs:
       - name: Build gwnum and mprime
         run: make -j4 UASM=$HOME/tools/uasm OBJCONV=$HOME/tools/objconv
 
+      # A .tar.gz keeps mprime's executable bit, which a zip would lose
       - name: Package
+        env:
+          PKG: mprime-linux64-${{ needs.setup.outputs.name }}
         run: |
-          mkdir -p out
-          cp linux/mprime out/
-          cp prime95/undoc.txt out/ 2>/dev/null || true
-          git log -1 --format='%H %s' > out/COMMIT.txt
+          mkdir -p "$PKG"
+          cp linux/mprime "$PKG"/
+          cp prime95/undoc.txt "$PKG"/ 2>/dev/null || true
+          git log -1 --format='%H %s' > "$PKG"/COMMIT.txt
+          tar czf "$PKG.tar.gz" "$PKG"
+          tar tzvf "$PKG.tar.gz"
 
+      # archive: false uploads the .tar.gz as is, so it downloads under its own name
       - uses: actions/upload-artifact@v7
         with:
-          name: mprime-linux64-${{ needs.setup.outputs.name }}
-          path: out/
+          path: mprime-linux64-${{ needs.setup.outputs.name }}.tar.gz
+          archive: false
           retention-days: 30
 
   windows64:
@@ -175,17 +181,21 @@ jobs:
       # prime95.exe needs the GMP, cURL and hwloc DLLs next to it
       - name: Package
         shell: pwsh
+        env:
+          PKG: prime95-win64-${{ needs.setup.outputs.name }}
         run: |
-          New-Item -ItemType Directory -Force out | Out-Null
-          Copy-Item prime95\x64\Release\prime95.exe out\
+          New-Item -ItemType Directory -Force $env:PKG | Out-Null
+          Copy-Item prime95\x64\Release\prime95.exe $env:PKG\
           Get-ChildItem -Recurse -Filter *.dll C:\deps\gmp64, C:\deps\curl-8.5.0-win64-mingw, C:\deps\hwloc-win64-build-2.8.0 |
-            Where-Object { $_.Name -match 'gmp|curl|hwloc' } | Copy-Item -Destination out\
-          if (Test-Path prime95\undoc.txt) { Copy-Item prime95\undoc.txt out\ }
-          git log -1 --format='%H %s' | Out-File -Encoding ascii out\COMMIT.txt
-          Get-ChildItem out | Format-Table Name, Length
+            Where-Object { $_.Name -match 'gmp|curl|hwloc' } | Copy-Item -Destination $env:PKG\
+          if (Test-Path prime95\undoc.txt) { Copy-Item prime95\undoc.txt $env:PKG\ }
+          git log -1 --format='%H %s' | Out-File -Encoding ascii $env:PKG\COMMIT.txt
+          Compress-Archive -Path $env:PKG -DestinationPath "$env:PKG.zip"
+          Get-ChildItem $env:PKG | Format-Table Name, Length
 
+      # archive: false uploads the .zip as is, so it downloads under its own name
       - uses: actions/upload-artifact@v7
         with:
-          name: prime95-win64-${{ needs.setup.outputs.name }}
-          path: out\
+          path: prime95-win64-${{ needs.setup.outputs.name }}.zip
+          archive: false
           retention-days: 30

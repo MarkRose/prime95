@@ -7,6 +7,9 @@
 #   prime95-win64-<branch>-<sha>.zip      prime95.exe (64-bit Release) and its DLLs
 #   mprime-linux64-<branch>-<sha>.tar.gz  mprime (built on Ubuntu 24.04)
 #
+# Each build is also published as the prerelease build-<branch> (see the
+# publish job), whose files anyone can download without signing in.
+#
 # It lives on the fork's master because GitHub only runs workflow_run and
 # workflow_dispatch workflows from the default branch.  Tool and library
 # downloads mirror build.yml; if George changes those, update them here too.
@@ -53,6 +56,7 @@ jobs:
     outputs:
       sha: ${{ steps.s.outputs.sha }}
       name: ${{ steps.s.outputs.name }}
+      label: ${{ steps.s.outputs.label }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -66,6 +70,7 @@ jobs:
           label=$(printf '%s' "$LABEL" | tr '/\\:<>|*?" ' '----------')
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "name=$label-${sha:0:8}" >> "$GITHUB_OUTPUT"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
 
   linux64:
     name: mprime (Linux 64-bit)
@@ -199,3 +204,49 @@ jobs:
           path: prime95-win64-${{ needs.setup.outputs.name }}.zip
           archive: false
           retention-days: 30
+
+  # Publish both builds as the prerelease build-<branch>, so they can be
+  # downloaded without signing in (Actions artifacts always need a login).
+  # The release and its tag are replaced on every build, so the URLs stay
+  #   https://github.com/<owner>/prime95/releases/download/build-<branch>/prime95-win64-<branch>.zip
+  #   https://github.com/<owner>/prime95/releases/download/build-<branch>/mprime-linux64-<branch>.tar.gz
+  # Tags made with the workflow's token do not start another workflow run.
+  publish:
+    name: Publish prerelease
+    needs: [setup, linux64, windows64]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: publish-${{ needs.setup.outputs.label }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: ${{ needs.setup.outputs.label }}
+      NAME: ${{ needs.setup.outputs.name }}
+      SHA: ${{ needs.setup.outputs.sha }}
+      REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_branch }}
+    steps:
+      - name: Download this run's builds
+        run: |
+          mkdir dl && cd dl
+          # Artifacts uploaded with archive: false come back from this endpoint as the file itself
+          gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | "\(.id) \(.name)"' |
+          while read -r id name; do gh api "repos/$GH_REPO/actions/artifacts/$id/zip" > "$name"; done
+          # Stable names without the commit, so the download URLs do not change
+          mv "prime95-win64-$NAME.zip" "prime95-win64-$LABEL.zip"
+          mv "mprime-linux64-$NAME.tar.gz" "mprime-linux64-$LABEL.tar.gz"
+          ls -l
+
+      - name: Replace the prerelease
+        run: |
+          tag="build-$LABEL"
+          subject=$(gh api "repos/$GH_REPO/commits/$SHA" --jq '.commit.message | split("\n")[0]')
+          notes=$(printf 'Automatic build of `%s` at %s:\n%s\n\nBuilt by %s/%s/actions/runs/%s\n\nNot an official Prime95 release.' \
+                  "$REF" "$SHA" "$subject" "$GITHUB_SERVER_URL" "$GH_REPO" "$GITHUB_RUN_ID")
+          gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$tag" dl/* --prerelease --latest=false --target "$SHA" \
+            --title "Build: $REF (${SHA:0:8})" --notes "$notes"
+          gh release view "$tag" --json url,assets --jq '.url, (.assets[] | .url)'

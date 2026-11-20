@@ -1,0 +1,35 @@
+# Fork only: when a branch is deleted, delete its build-<branch> prerelease
+# (made by fork-artifacts.yml) and the prerelease's tag.
+#
+# GitHub runs delete-event workflows from the default branch.  It does not
+# send delete events when more than three branches are deleted in one push;
+# remove those prereleases by hand (gh release delete build-<branch> --cleanup-tag).
+
+name: Fork prerelease cleanup
+
+on:
+  delete:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.event.ref_type == 'branch'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BRANCH: ${{ github.event.ref }}
+    steps:
+      - name: Delete the branch's prerelease
+        run: |
+          # The same name mangling as fork-artifacts.yml
+          label=$(printf '%s' "$BRANCH" | tr '/\\:<>|*?" ' '----------')
+          tag="build-$label"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release delete "$tag" --cleanup-tag --yes
+            echo "Deleted prerelease $tag"
+          else
+            echo "No prerelease $tag"
+          fi

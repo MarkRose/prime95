@@ -1,0 +1,191 @@
+# Fork only: downloadable builds of every branch pushed to this fork.
+#
+# George's build.yml builds and tests every push but uploads only the gwnum
+# package.  This workflow runs after a successful "Build" of a push to this
+# repository (or by hand for any branch, tag or commit), checks out that
+# commit, and uploads:
+#   prime95-win64-<branch>-<sha>  prime95.exe (64-bit Release) and its DLLs
+#   mprime-linux64-<branch>-<sha> mprime (built on Ubuntu 24.04)
+#
+# It lives on the fork's master because GitHub only runs workflow_run and
+# workflow_dispatch workflows from the default branch.  Tool and library
+# downloads mirror build.yml; if George changes those, update them here too.
+
+name: Fork artifacts
+
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  UASM_URL: https://github.com/gwoltman/UASM-2.58-gw1/releases/download/v2.58-gw1
+  UASM_LINUX_SHA256: 7790bb12c86027b9b3f79f86a3300a41d90342393b9c2c13f9b0dc5fcee69e16
+  UASM_WINDOWS_SHA256: 6a7a13a39b7d78296f525f94619d52e6044877c74c25890ed35e548bd50ceda6
+  OBJCONV_URL: https://www.agner.org/optimize/objconv.zip
+  OBJCONV_SHA256: 0f604f93f97f689afd7615c86176eb15bc95001eadf8317f17ebd099c50c59e1
+  DEPS_URL: https://github.com/gwoltman/prime95-windows-deps/releases/download/v1
+  GMP64_SHA256: a3c7d199c6904f0936a127c1654820caedce69e21cc8a7c0e23bb2ddc1e58c91
+  CURL64_SHA256: 04d932a888233b1d9eade87cfe657baec2708fd2887eca518f92a5e54013bb01
+  HWLOC_URL: https://download.open-mpi.org/release/hwloc/v2.8
+  HWLOC64_SHA256: baf509622b63de8237c8f39ca70217bc568c5e79f1746bde3174d8ed886311f5
+  BOOST_URL: https://archives.boost.io/release/1.76.0/source/boost_1_76_0.tar.gz
+  BOOST_SHA256: 7bd7ddceec1a1dfdcbdb3e609b60d01739c38390a5f956385a12f3122049f0ca
+
+jobs:
+  # Work out what to build and what to call the artifacts.  Only pushes to this
+  # repository are built automatically, never pull requests from other forks.
+  setup:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.s.outputs.sha }}
+      name: ${{ steps.s.outputs.name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+      - id: s
+        env:
+          LABEL: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_branch }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          # Artifact names cannot contain / \ : < > | * ? or quotes
+          label=$(printf '%s' "$LABEL" | tr '/\\:<>|*?" ' '----------')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "name=$label-${sha:0:8}" >> "$GITHUB_OUTPUT"
+
+  linux64:
+    name: mprime (Linux 64-bit)
+    needs: setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+
+      - name: Install libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libhwloc-dev libcurl4-openssl-dev libboost-dev
+
+      - name: Get UASM and objconv
+        run: |
+          mkdir -p ~/tools && cd ~/tools
+          curl -fsSL -o uasm.tar.gz "$UASM_URL/uasm-2.58-gw1-linux-x86_64.tar.gz"
+          echo "$UASM_LINUX_SHA256  uasm.tar.gz" | sha256sum -c
+          tar xzf uasm.tar.gz
+          cp uasm-2.58-gw1-linux-x86_64/uasm .
+          curl -fsSL -o objconv.zip "$OBJCONV_URL"
+          echo "$OBJCONV_SHA256  objconv.zip" | sha256sum -c
+          unzip -q objconv.zip source.zip
+          mkdir objconv-src && cd objconv-src && unzip -q ../source.zip
+          g++ -O2 -o ../objconv *.cpp
+
+      - name: Build gwnum and mprime
+        run: make -j4 UASM=$HOME/tools/uasm OBJCONV=$HOME/tools/objconv
+
+      - name: Package
+        run: |
+          mkdir -p out
+          cp linux/mprime out/
+          cp prime95/undoc.txt out/ 2>/dev/null || true
+          git log -1 --format='%H %s' > out/COMMIT.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mprime-linux64-${{ needs.setup.outputs.name }}
+          path: out/
+          retention-days: 30
+
+  windows64:
+    name: prime95 (Windows 64-bit)
+    needs: setup
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+
+      - name: Get UASM and objconv
+        shell: pwsh
+        run: |
+          curl.exe -fsSL --retry 3 -o uasm.zip "$env:UASM_URL/uasm-2.58-gw1-windows-x64.zip"
+          if ((Get-FileHash uasm.zip -Algorithm SHA256).Hash -ne $env:UASM_WINDOWS_SHA256) { throw "uasm.zip checksum mismatch" }
+          Expand-Archive uasm.zip -DestinationPath uasm-tmp
+          New-Item -ItemType Directory -Force c:\uasm_258gw1 | Out-Null
+          Copy-Item uasm-tmp\uasm-2.58-gw1-windows-x64\uasm64.exe c:\uasm_258gw1\
+          curl.exe -fsSL --retry 3 -o objconv.zip $env:OBJCONV_URL
+          if ((Get-FileHash objconv.zip -Algorithm SHA256).Hash -ne $env:OBJCONV_SHA256) { throw "objconv.zip checksum mismatch" }
+          Expand-Archive objconv.zip -DestinationPath c:\objconv
+          Remove-Item -Recurse uasm-tmp, uasm.zip, objconv.zip
+
+      - name: Get GMP, cURL, hwloc and Boost headers
+        shell: pwsh
+        run: |
+          function Get-Checked($url, $file, $sha) {
+            curl.exe -fsSL --retry 3 -o $file $url
+            if ($LASTEXITCODE -ne 0) { throw "download of $url failed" }
+            if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $sha) { throw "$file checksum mismatch" }
+          }
+          New-Item -ItemType Directory -Force C:\deps | Out-Null
+          Set-Location C:\deps
+          Get-Checked "$env:DEPS_URL/libgmp-gw1-6.2.0-win64.zip" gmp64.zip $env:GMP64_SHA256
+          Get-Checked "$env:DEPS_URL/curl-8.5.0-win64-mingw.zip" curl64.zip $env:CURL64_SHA256
+          Get-Checked "$env:HWLOC_URL/hwloc-win64-build-2.8.0.zip" hwloc64.zip $env:HWLOC64_SHA256
+          foreach ($z in 'gmp64', 'curl64', 'hwloc64') { Expand-Archive "$z.zip" -DestinationPath . ; Remove-Item "$z.zip" }
+          Get-Checked $env:BOOST_URL boost.tar.gz $env:BOOST_SHA256
+          & "$env:SystemRoot\System32\tar.exe" -xzf boost.tar.gz -T "$env:GITHUB_WORKSPACE\.github\boost-headers.txt"
+          if ($LASTEXITCODE -ne 0) { throw "unpacking Boost failed" }
+          Remove-Item boost.tar.gz
+          @("P95_GMP64_DIR=C:\deps\gmp64", "P95_CURL64_DIR=C:\deps\curl-8.5.0-win64-mingw",
+            "P95_HWLOC64_DIR=C:\deps\hwloc-win64-build-2.8.0", "P95_BOOST_DIR=C:\deps\boost_1_76_0") | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Build 64-bit gwnum and factoring code
+        shell: cmd
+        run: |
+          cd gwnum
+          call c64.bat
+          if errorlevel 1 exit /b 1
+          cd ..\prime95
+          call c64.bat
+          if errorlevel 1 exit /b 1
+
+      - name: Build prime95.exe (Release x64)
+        shell: pwsh
+        run: |
+          $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\amd64\MSBuild.exe' | Select-Object -First 1
+          & $msbuild prime95\prime95.sln -nologo -v:minimal -m "-p:Configuration=Release" "-p:Platform=x64"
+          if ($LASTEXITCODE -ne 0) { throw "prime95.sln Release|x64 failed" }
+
+      # prime95.exe needs the GMP, cURL and hwloc DLLs next to it
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item prime95\x64\Release\prime95.exe out\
+          Get-ChildItem -Recurse -Filter *.dll C:\deps\gmp64, C:\deps\curl-8.5.0-win64-mingw, C:\deps\hwloc-win64-build-2.8.0 |
+            Where-Object { $_.Name -match 'gmp|curl|hwloc' } | Copy-Item -Destination out\
+          if (Test-Path prime95\undoc.txt) { Copy-Item prime95\undoc.txt out\ }
+          git log -1 --format='%H %s' | Out-File -Encoding ascii out\COMMIT.txt
+          Get-ChildItem out | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prime95-win64-${{ needs.setup.outputs.name }}
+          path: out\
+          retention-days: 30

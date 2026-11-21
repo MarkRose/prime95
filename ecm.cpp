@@ -14606,6 +14606,8 @@ typedef struct {
 	gwnum	*poly2[2];	/* Arrays of poly2 coefficients (both halves) for helper routine to compute */
 	uint64_t remaining_poly2_size; /* Number of poly2 coefficients to compute */
 	gwnum	*points;	/* Array of evaluated points for helper routine to accumulate into gg for later GCD */
+	gwnum	*accumulators;	/* Each helper's product of evaluated points.  The main thread multiplies these into gg. */
+	int	threaded_phases; /* TRUE if poly #2 coefficients and gg accumulation are done one gwnum at a time using all threads */
 } pp1handle;
 
 /* Perform cleanup functions. */
@@ -14621,6 +14623,7 @@ void pp1_cleanup (
 	free (pp1data->V_binary), pp1data->V_binary = NULL;
 	free (pp1data->gg_binary), pp1data->gg_binary = NULL;
 	free (pp1data->helper_diffs), pp1data->helper_diffs = NULL;
+	free (pp1data->accumulators), pp1data->accumulators = NULL;
 	polymult_done (&pp1data->polydata);
 	gwdone (&pp1data->gwdata);
 	pp1data->V = pp1data->Vn = pp1data->Vn1 = pp1data->gg = NULL;
@@ -15899,7 +15902,8 @@ void pp1_ext_pow (
 
 void pp1_helper (
 	int	helper_num,	// 0 = main thread, 1+ = helper thread num
-	gwhandle *gwdata,	// Single-threaded, thread-safe gwdata (probably cloned) to use
+	gwhandle *gwdata,	// Single-threaded, thread-safe gwdata (probably cloned) to use.  Or the main thread's multithreaded gwdata
+				// when the main thread does all the work (threaded_phases).
 	void	*info)
 {
 	pp1handle *pp1data = (pp1handle *) info;
@@ -15952,13 +15956,10 @@ void pp1_helper (
 			else gwmul3 (gwdata, pp1data->points[point], accumulator, accumulator, GWMUL_STARTNEXTFFT);
 		}
 
-		// Now apply the accumulator to gg
-		if (accumulator != NULL) {
-			gwfft (gwdata, accumulator, accumulator);
-			gwmutex_lock (&pp1data->polydata.poly_mutex);
-			gwmul3 (gwdata, accumulator, pp1data->gg, pp1data->gg, GWMUL_STARTNEXTFFT);
-			gwmutex_unlock (&pp1data->polydata.poly_mutex);
-		}
+		// Hand the accumulator to the main thread, which multiplies the accumulators into gg using all threads once the helpers
+		// are done.  Multiplying into gg here would mean single-threaded multiplies, one helper at a time under a mutex, while
+		// the other threads sit idle.
+		pp1data->accumulators[helper_num] = accumulator;
 	}
 }
 
@@ -17256,6 +17257,12 @@ pp1_polymult:
 	pp1data.helper_count = pp1data.stage2_threads;
 	if (pp1data.helper_count > pp1data.num_points) pp1data.helper_count = (int) pp1data.num_points;
 
+	// Decide how to thread computing poly #2 coefficients and accumulating gg.  Allocate the array where helpers return their products of points.
+	pp1data.threaded_phases = IniGetInt (INI_FILE, "Stage2ThreadedPhases", 1);
+	free (pp1data.accumulators);
+	pp1data.accumulators = (gwnum *) malloc (pp1data.polydata.max_num_threads * sizeof (gwnum));
+	if (pp1data.accumulators == NULL) goto lowmem;
+
 // Polymult stage 2 does not need a prime sieve
 
 	end_sieve (pp1data.sieve_info), pp1data.sieve_info = NULL;
@@ -17646,7 +17653,14 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pp1data.gwdata);
 		pp1data.helper_work = PP1_COMPUTE_POLY2;				// Work type for helper to do
 		pp1data.poly2[0] = poly2[0];						// Arrays of poly2 coefficients
 		pp1data.poly2[1] = poly2[1];
-		polymult_launch_helpers (&pp1data.polydata);
+		// Either have the main thread compute every coefficient chain one gwnum at a time using all of gwnum's threads, or set gwnum
+		// to use only one thread and launch the helpers, each computing its own chains.  The first keeps the working set of each
+		// operation small enough to stay in a large L3 cache.  The second has every thread streaming its own gwnums through memory.
+		if (pp1data.threaded_phases) {
+			atomic_set (pp1data.polydata.helper_counter, 0);
+			pp1_helper (0, &pp1data.gwdata, &pp1data);
+		} else
+			polymult_launch_helpers (&pp1data.polydata);
 
 // Check for ESC before doing expensive polymult
 
@@ -17681,7 +17695,19 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pp1data.gwdata);}
 		pp1data.polydata.helper_callback_data = &pp1data;
 		pp1data.helper_work = PP1_ACCUMULATING_GG;			// Work type for helper to do
 		pp1data.points = poly2[1] + 2*pp1data.numrels;			// Points to accumulate were written over higher coefficients of poly2
-		polymult_launch_helpers (&pp1data.polydata);
+
+		// Either have the main thread accumulate all the points one gwnum at a time using all of gwnum's threads, or set gwnum to use
+		// only one thread and launch the helpers, each accumulating its own share of the points.
+		for (int i = 0; i < pp1data.polydata.max_num_threads; i++) pp1data.accumulators[i] = NULL;
+		if (pp1data.threaded_phases) {
+			atomic_set (pp1data.polydata.helper_counter, 0);
+			pp1_helper (0, &pp1data.gwdata, &pp1data);
+		} else
+			polymult_launch_helpers (&pp1data.polydata);
+
+		// Multiply the accumulators into gg using all threads
+		for (int i = 0; i < pp1data.polydata.max_num_threads; i++)
+			if (pp1data.accumulators[i] != NULL) gwmul3 (&pp1data.gwdata, pp1data.accumulators[i], pp1data.gg, pp1data.gg, GWMUL_STARTNEXTFFT);
 
 // Keep track of the sections processed thusfar
 

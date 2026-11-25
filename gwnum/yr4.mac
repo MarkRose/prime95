@@ -18881,12 +18881,12 @@ yr4_fs4cl_four_complex_first_djbfft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt
 	yfmaddpd ymm8, ymm10, ymm13, ymm8	;; new I3 = A3 + I3*SQRTHALF	; 6-10		5-8
 
 	vmovapd	ymm2, [srcreg+d1+32][rbx]	;; R6 (I2)
-	yfnmaddpd_by1 ymm4, ymm2, ymm14, ymm4	;; new R2 = A2 - .383*I2	; 7-11		6-9
+	yfnmaddpd ymm4, ymm2, ymm14, ymm4	;; new R2 = A2 - .383*I2	; 7-11		6-9
 	yfmaddpd ymm6, ymm2, ymm15, ymm6	;; new I2 = B2 + .924*I2	; 7-11		6-9
 
 	vmovapd	ymm1, [srcreg+d2+d1+32][rbx]	;; R8 (I4)
 	yfnmaddpd ymm5, ymm1, ymm15, ymm5	;; new R4 = A4 - .924*I4	; 8-12		7-10
-	yfmaddpd_by1 ymm7, ymm1, ymm14, ymm7	;; new I4 = B4 + .383*I4	; 8-12		7-10
+	yfmaddpd ymm7, ymm1, ymm14, ymm7	;; new I4 = B4 + .383*I4	; 8-12		7-10
 
 ; two aparts
 
